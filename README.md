@@ -4,7 +4,56 @@
 覆盖 A股 / 港股 / 美股;内置技术/资金/筹码/同板块/基本面多维分析、量化回测,
 以及 **DeepSeek** 驱动的多模式研判(含 TradingAgents 式"多空辩论 → 交易员/风控/组合经理"决策链)。
 
-> 单标的、单机、本地运行。所有个股/主机/密钥都通过配置文件注入,仓库本身不含任何具体标的或凭证。
+> 单机、本地运行。所有个股/主机/密钥都通过配置文件注入,仓库本身不含任何具体标的或凭证。
+
+## TL;DR
+```bash
+git clone https://github.com/gnawdrawoh/tradingassistantAshare.git && cd tradingassistantAshare
+cp config.example.json config.json         # 填 ssh_host + 自选股
+echo "sk-..." > .deepseek_key              # (可选) DeepSeek key,启用 AI 研判
+./run.sh start                             # → http://localhost:8770
+```
+前提:一台你能 `ssh` 到、且装好并认证了 **Longbridge CLI** 的主机。
+
+## 架构
+```mermaid
+flowchart LR
+  subgraph HOST["SSH 主机"]
+    LB["Longbridge CLI<br/>(已认证)"]
+  end
+  EM["东财<br/>龙虎榜 / 公告"]
+  DS["DeepSeek API"]
+  subgraph LOCAL["本地 · localhost:8770"]
+    SV["server.py<br/>取数 · 指标/筹码/主力 · 量化回测 · 评分<br/>进程内调度(交易时段自动跑)"]
+    AN["deepseek_analyst.py<br/>快速 / 多智能体 / 日内 / 深度决策"]
+    WT["watch.py<br/>盘中信号监控"]
+    AR["archive.py<br/>收盘存档"]
+  end
+  UI["index.html<br/>ECharts 仪表盘<br/>(多标的切换 · 红涨绿跌)"]
+  PUSH["macOS 通知<br/>+ Bark/Server酱 手机推送"]
+
+  LB -->|SSH 批量| SV
+  EM -->|HTTP| SV
+  SV -->|/api/*| UI
+  SV --> AN -->|HTTPS| DS
+  SV --> WT --> PUSH
+  SV --> AR
+```
+
+**深度决策管线**(参考 TradingAgents,原生实现):
+```mermaid
+flowchart TD
+  DATA["技术 · 资金 · 筹码 · 板块 · 基本面 · 消息面"] --> BULL["看多研究员"]
+  DATA --> BEAR["看空研究员"]
+  BULL <-->|N 轮辩论| BEAR
+  BULL --> MGR["研究经理 · 裁决"]
+  BEAR --> MGR
+  MGR --> TR["交易员<br/>买卖 + 仓位"]
+  TR --> RK["风控<br/>降仓 / 否决闸门"]
+  RK --> PM["组合经理<br/>最终拍板"]
+  PM -.-> MEM["decisions.jsonl"]
+  MEM -.->|下次拉实际涨跌复盘,注入| DATA
+```
 
 ## 功能面板
 - **行情/技术**:日K / 15分K / 分时(含均价线);MA · MACD · KDJ · RSI · BOLL;量能(红涨绿跌)
@@ -75,3 +124,7 @@ cp fundamentals.example.json fundamentals.json  # 可选:财报关键指标
 ## 致谢
 DeepSeek 决策管线的"多空辩论 + 决策链 + 反思记忆"设计参考了
 [TradingAgents](https://github.com/TauricResearch/TradingAgents)(原生实现,未引入 LangGraph)。
+图表由 [Apache ECharts](https://echarts.apache.org) 渲染。
+
+## License
+[MIT](LICENSE) © 2026 Howard Wang — 仅为研究/教育用途的行情分析工具,不构成投资建议。
