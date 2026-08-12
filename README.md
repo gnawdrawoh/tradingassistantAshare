@@ -1,118 +1,77 @@
-# 盘面 Tracker · 多标的
+# 盘面 Tracker — A股/港股/美股 盘面分析 + DeepSeek 决策助手
 
-顶部**自选栏**可切换/添加/移除标的(A股/港股/美股皆可,如 `002475.SZ` `2590.HK` `AAPL.US`)。
-自选保存在 `watchlist.json`,当前:新恒汇 301678.SZ · 立讯精密 002475.SZ · 极智嘉-W 2590.HK。
-所有面板(K线/筹码/指标/主力/同板块/量化/AI)都跟随当前标的;所有 API 支持 `?symbol=`。
-- 同板块对比:`PEER_MAP`(server.py)按标的配同业;未配置的自动只跟大盘指数比(港股用恒生指数)
-- 限售/龙虎榜:`supply.json` 按标的存限售结构(目前仅 301678);港股无龙虎榜时该面板自动隐藏
-- ⚠️ **信号提醒(watch.py)目前只盯自选第一只**(默认 301678.SZ);**收盘存档已覆盖全部自选**
+一个**零依赖**(Python 标准库 + ECharts)的本地盘面分析平台。数据经 **Longbridge CLI** 拉取,
+覆盖 A股 / 港股 / 美股;内置技术/资金/筹码/同板块/基本面多维分析、量化回测,
+以及 **DeepSeek** 驱动的多模式研判(含 TradingAgents 式"多空辩论 → 交易员/风控/组合经理"决策链)。
 
-A local, single-page 盘面 dashboard that tracks capital flow (资金), technical
-indicators (技术指标), main-force money (主力), and a quantitative score (量化)
-for 新恒汇. Data is pulled live from the authenticated **Longbridge CLI** running
-on the coffee EC2 (`temp-01-coffee`) over SSH — no API keys stored locally.
+> 单标的、单机、本地运行。所有个股/主机/密钥都通过配置文件注入,仓库本身不含任何具体标的或凭证。
 
-## What it shows
-- **Header** — realtime price, 涨跌, 换手率, 量比, 流通市值, 距高, 主力净额, 获利比例
-- **K线 / 日内图** — 三种视图切换:
-  - **日K**:蜡烛(红涨绿跌) + MA5/10/20/60 + BOLL + 量能 + 缩放
-  - **15分K**:真蜡烛(含OHLC) + MA5/MA20 + 量能(日内多日回看)
-  - **分时**:今日逐分钟价格线 + **均价线(金)** + 昨收虚线 + 量能(A股经典分时图)
-  ⚠️ 所有日内时间轴已转北京时区(接口返回 UTC)
-- **筹码分布** — cost/volume-profile (the signature panel): 套牢 peak in red above
-  price, 获利 chips in green below, gold 现价 line, 获利比例
-- **技术指标** — MACD / KDJ / RSI
-- **主力资金** — 大/中/小单净额 + intraday 分时资金流 curve
-- **量化盘面强弱** — 0–100 gauge with transparent sub-signals + a plain-language readout
-- **同板块 · 封测/引线框架** — 康强/长电/通富/华天/晶方/紫光国微 + 创业板指/科创50 横向对比
-  (今日/距高/两周半),新恒汇高亮并标注是否板块跌幅第一 (Longbridge, cached 5min)
-- **限售 · 减持结构 · 龙虎榜** — 控股锁定(虞仁荣/任志军至2028)、2026-06-22 解禁逐户
-  (武岳峰🐋领衔创投)、真实抛压解读(来自上市公告书 `supply.json`)+ 东财龙虎榜 (cached 1h)
+## 功能面板
+- **行情/技术**:日K / 15分K / 分时(含均价线);MA · MACD · KDJ · RSI · BOLL;量能(红涨绿跌)
+- **主力资金 / 筹码分布**:大中小单净额 + 分时资金流;成本分布(带换手衰减)+ 获利比例
+- **同板块对比**:同业 + 大盘指数横向(距高/今日/两周半)
+- **限售解禁 / 龙虎榜**(A股):`supply.json` + 东财龙虎榜(可选,无数据自动隐藏)
+- **基本面**:`fundamentals.json`(营收/净利/现金流/分业务…,可选,无数据自动隐藏)
+- **量化策略回测**:7 策略(均线/MACD/KDJ/布林/趋势/RSI反转/量价突破)胜率·收益·回撤·当前信号
+- **AI 盘面研判 · DeepSeek**(4 模式):
+  - **快速**:五维(技术/资金/筹码/板块/基本面)综合评级 + 信号
+  - **多智能体**:5 位分析师各出观点 → 首席综合
+  - **日内追踪**:读今日分时给日内做T信号(T+1 感知),可勾选盘中自动追踪
+  - **深度决策**(TradingAgents 式):多空辩论(多轮)→ 研究经理裁决 → 交易员(仓位)→ 风控(闸门)
+    → 组合经理拍板;含**消息面**(news+公告)与**反思记忆**(按实际涨跌复盘,越用越准)
+- **盘中信号提醒**:规则类(免费)+ AI 类 → macOS 通知 + 手机推送(Bark/Server酱/PushDeer/webhook)
+- **收盘自动存档** · 进程内调度(交易时段自动跑,免 cron)
 
-- **量化策略 · 回测** — 7 个经典策略(均线金叉/MACD/KDJ/布林/趋势/RSI反转/量价突破)在本股近250日的
-  累计收益·超额·胜率·最大回撤 + 当前信号 + 多数共识 (`/api/quant`,随主数据计算)
-- **基本面** — 财报关键指标(营收/净利/扣非/现金流/EPS/ROE/净利率/净资产 + 同比,红涨绿跌)、
-  分业务收入增速、要点与总结。数据在 `fundamentals.json`(按标的键;目前 301678 中报);无数据时面板自动隐藏
-- **AI 盘面研判 · DeepSeek** — 把已算好的**五维**(技术/资金/筹码/板块/**基本面**)数据喂给 DeepSeek (`/api/ai`,按需触发,10min缓存)。
-  基本面接入后能识别"利润跌得比股价快→估值反升""券商盈利锚落空"等**基本面×盘面背离**。
-  受 [TradingAgents](https://github.com/TauricResearch/TradingAgents) / [TradingAgents-astock](https://github.com/simonlin1212/TradingAgents-astock) 多分析师辩论模式启发,原生实现:
-  - **快速**(1次调用):单模型融合技术/资金/筹码/板块出综合评级+信号
-  - **多智能体**(5次调用):技术/资金/筹码/板块 4 位分析师各出观点 → 首席综合(bull/bear)
-  - **日内追踪**(1次调用):读今日分时/15分钟/分时资金流,给日内量化交易追踪(日内趋势/关键价位/
-    做T信号/盯盘要点,T+1 规则感知)。可勾选 **盘中自动追踪(5m)** 每 5 分钟自动重跑
-  - **深度决策**(TradingAgents 式,约1-3分钟):**多空辩论**(看多⇄看空研究员多轮,`MAX_DEBATE_ROUNDS`默认2)
-    → **研究经理**裁决 → **交易员**(买卖/仓位)→ **风控**(距高/振幅/解禁/T+1 闸门,可降仓否决)
-    → **组合经理**(reasoner 拍板)。含 **消息面**(Longbridge news+东财公告)与 **反思记忆**
-    (`archive/decisions.jsonl`:每次决策记录,下次拉实际涨跌自动复盘"上次判断对错+教训"注入本次)
-  - **模型**:深度环节用 `deepseek-reasoner`;分析师/辩论/交易员/风控用 `deepseek-chat` 求快。
-    `DEEPSEEK_MODEL`/`DEEPSEEK_SUB_MODEL`/`MAX_DEBATE_ROUNDS` 可覆盖(run.sh 已默认)
+## 依赖
+- **Python 3**(仅标准库,无需 pip install)
+- **Longbridge CLI**,已认证,装在一台你能 SSH 到的主机上
+  (`ssh <your-host> longbridge check` 应显示 token 有效)。见 https://open.longbridge.com
+- (可选)**DeepSeek API key**——启用 AI 研判。https://platform.deepseek.com
 
-Refreshes every 20s (核心) / 2min (板块+限售). Backend caches SSH pulls 15s, peers 5min, supply 1h, AI 10min.
-
-## DeepSeek Key 配置(AI 研判需要)
-用你自己的 DeepSeek key(OpenAI 兼容,https://platform.deepseek.com)。二选一:
+## 配置(把 `*.example.json` 复制成同名去掉 `.example`)
 ```bash
-# 方式一:写入本地文件(已 gitignore,不会外泄)
-echo "sk-你的key" > ~/Documents/Claude/9-Stock/.deepseek_key
-./run.sh restart
-# 方式二:环境变量
-DEEPSEEK_API_KEY=sk-... python3 server.py 8770
+cp config.example.json config.json          # 必填:ssh_host + 自选股 watchlist
+cp peers.example.json  peers.json            # 可选:某标的的同业组
+cp supply.example.json supply.json           # 可选:限售/解禁结构(A股)
+cp fundamentals.example.json fundamentals.json  # 可选:财报关键指标
 ```
-可选:`DEEPSEEK_MODEL=deepseek-reasoner`(更深、更慢)。默认 `deepseek-chat`。
-调用会把当前盘面数字摘要发给 DeepSeek(你的账号、你的 key);不含任何账户/持仓隐私。
+- **SSH 主机**:`config.json` 的 `ssh_host`,或环境变量 `LB_SSH_HOST`
+- **DeepSeek key**:`echo "sk-..." > .deepseek_key`(或环境变量 `DEEPSEEK_API_KEY`)
+- **手机推送**:`cp push.example.json push.json` 填入你的 Bark/Server酱 key
+- 以上文件(config/peers/supply/fundamentals/push/.deepseek_key)均已 **gitignore**,不会外泄
 
-## 盘中信号提醒(watch.py)
-触发即写档 `archive/alerts.jsonl` + 弹 macOS 通知,并在面板顶部「信号提醒」显示当日信号。两类:
-- **规则类**(免费,读 `/api/data`):跌破分时均价 / 创日内新低 / 分时资金流转负 / 主力大单转流出 / 临近跌停
-- **AI 类**(`--ai`,DeepSeek reasoner 日内):做T多/空信号 / 强信号(|信号|≥70) / 趋势跳水破位
-
-单次执行,默认仅交易时段(`--force` 忽略;`--no-notify` 静默)。已装 cron(工作日交易时段,Mac时区=北京):
-```
-*/5  9-11,13-15 * * 1-5   python3 watch.py        # 规则类,免费,每5分钟
-*/20 9-11,13-15 * * 1-5   python3 watch.py --ai   # AI类,reasoner,每20分钟
-```
-手动:`python3 watch.py --force --ai`。改频率/关闭:`crontab -e`。规则与AI用独立 state 文件,无竞争。
-⚠️ AI 类每次触发一次 reasoner 调用(有成本);嫌贵可调大间隔或去掉 `--ai` 那行。
-
-### 手机推送(Bark / Server酱 / PushDeer / webhook)
-信号除了 macOS 通知,还推到手机。配置 `push.json`(已 gitignore,见 `push.example.json`),支持多渠道:
-```json
-[ { "type": "bark", "key": "xxxx", "sound": "alarm", "level": "timeSensitive" } ]
-```
-已配置 **Bark**。测试:`python3 watch.py --test-push`。Server酱用 `{"type":"serverchan","key":"SCT.."}`,
-PushDeer 用 `{"type":"pushdeer","key":".."}`,自建 `{"type":"webhook","url":".."}`。key 明文存本地、已 gitignore。
-
-## 收盘后自动存档
-`archive.py` 抓当日盘面快照(价/资金/筹码/评分/同板块)存 `archive/YYYY-MM-DD.json` + 追加
-`archive/_ledger.jsonl` 便于回溯趋势。已装 cron(工作日 15:05 本机时间,Mac 时区=北京):
-```
-5 15 * * 1-5 cd ~/Documents/Claude/9-Stock && /usr/bin/python3 archive.py >> /tmp/panmian_archive.log 2>&1
-```
-手动跑:`python3 archive.py`。移除:`crontab -e` 删该行。⚠️ 需 Mac 当时处于开机状态。
-
-## Run
+## 运行
 ```bash
-cd ~/Documents/Claude/9-Stock
-./run.sh start      # starts on http://localhost:8770
-./run.sh stop
-./run.sh restart
-python3 server.py 8770   # or run directly (foreground)
+./run.sh start        # → http://localhost:8770
+./run.sh status|restart|stop
 ```
-Then open http://localhost:8770
+顶部自选栏可切换/添加/移除标的(A股 `600519.SH` / 港股 `700.HK` / 美股 `AAPL.US`)。
 
-## Track a different stock
-```bash
-STOCK_SYMBOL=002119.SZ python3 server.py 8770   # e.g. 康强电子
-```
-(Edit `STOCK_NAME` in `server.py` for the display name.)
+## 模型 / 环境变量
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `LB_SSH_HOST` | config.json 的 ssh_host | Longbridge CLI 所在主机 |
+| `DEEPSEEK_API_KEY` | 读 `.deepseek_key` | DeepSeek key |
+| `DEEPSEEK_MODEL` | `deepseek-reasoner` | 深度环节模型(快速/日内/首席/深度)|
+| `DEEPSEEK_SUB_MODEL` | `deepseek-chat` | 分析师/辩论/交易员/风控(求快)|
+| `MAX_DEBATE_ROUNDS` | `2` | 深度决策的多空辩论轮数 |
 
-## Requirements
-- Python 3 (stdlib only — no pip installs)
-- SSH access to `temp-01-coffee` with the Longbridge CLI authenticated there
-  (`ssh temp-01-coffee longbridge check`)
+## 文件
+| 文件 | 作用 |
+|---|---|
+| `server.py` | 零依赖后端:SSH 取数 + 指标/筹码/主力/量化/评分 + 全部 API |
+| `deepseek_analyst.py` | DeepSeek 四模式研判 + 深度决策管线 + 反思记忆 |
+| `watch.py` | 盘中信号监控(规则+AI)+ macOS/手机推送 |
+| `archive.py` | 收盘快照存档 |
+| `index.html` | 单页仪表盘(ECharts,暗色终端风,红涨绿跌)|
+| `*.example.json` | 配置模板(复制去掉 `.example` 使用)|
 
-## Files
-- `server.py` — stdlib HTTP backend: SSH batch fetch + indicator/筹码/主力/score math
-- `index.html` — dashboard UI (ECharts, dark A-share terminal theme)
-- `echarts.min.js` — vendored charting lib (offline)
-- `run.sh` — start/stop helper
+## 说明
+- **红涨绿跌**:遵循 A 股习惯(涨=红,跌=绿),与美股相反
+- 面板/图表跟随当前标的;所有 API 支持 `?symbol=`
+- 时区:接口返回 UTC,日内图表已转北京时间;交易时段判断按本机时区(默认视为北京时)
+- 仅为盘面数据分析工具,**不构成任何投资建议**
+
+## 致谢
+DeepSeek 决策管线的"多空辩论 + 决策链 + 反思记忆"设计参考了
+[TradingAgents](https://github.com/TauricResearch/TradingAgents)(原生实现,未引入 LangGraph)。

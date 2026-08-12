@@ -2,6 +2,12 @@
 .deepseek_key
 .deepseek_model
 push.json
+# 用户私有配置/研究数据(用 *.example.json 作模板)
+config.json
+peers.json
+supply.json
+fundamentals.json
+watchlist.json
 # 运行时数据/缓存
 archive/
 __pycache__/

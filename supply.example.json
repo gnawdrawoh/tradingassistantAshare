@@ -1,0 +1,11 @@
+{
+  "_comment": "可选:限售/解禁结构(人工从上市公告书/解禁公告录入)。键=标的代码。无此文件则该面板自动隐藏。",
+  "600519.SH": {
+    "locked_control": {"label":"控股/实控 · 锁定说明",
+      "holders":[{"name":"控股股东A","pct_pre":54.0,"note":"第一大股东"}],"sum_pct_pre":54.0},
+    "unlocked_20260622": {"label":"YYYY-MM-DD 解禁 · 锁N个月","total_shares":90000000,"total_pct":38.0,
+      "holders":[{"name":"某创投","shares":28000000,"pct":11.8,"type":"创投","sell":true,"whale":true},
+                 {"name":"员工持股平台","shares":4800000,"pct":2.0,"type":"员工","sell":false,"note":"黏性高"}]},
+    "read": "一句话结论:真实抛压来源与节奏。"
+  }
+}

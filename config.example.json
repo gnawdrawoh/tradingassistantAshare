@@ -1,0 +1,8 @@
+{
+  "ssh_host": "your-host-with-longbridge-cli",
+  "watchlist": [
+    {"symbol": "AAPL.US", "name": "Apple"},
+    {"symbol": "700.HK",  "name": "Tencent"},
+    {"symbol": "600519.SH","name": "Kweichow Moutai"}
+  ]
+}

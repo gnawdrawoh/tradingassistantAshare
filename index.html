@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>盘面 · 新恒汇 301678</title>
+<title>盘面 Tracker</title>
 <script src="/echarts.min.js"></script>
 <style>
 :root{
@@ -180,7 +180,7 @@ header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
 <body>
 <div class="stockbar" id="stockbar"></div>
 <header>
-  <div class="brand"><span class="nm" id="nm">新恒汇</span><span class="cd" id="cd">301678.SZ</span></div>
+  <div class="brand"><span class="nm" id="nm">—</span><span class="cd" id="cd"></span></div>
   <div class="px"><span class="big mono" id="px">--</span><span class="chg mono" id="chg">--</span></div>
   <div class="stat-strip" id="strip"></div>
   <div class="live"><span class="dot" id="dot"></span><span id="livetxt">连接中…</span></div>
@@ -317,7 +317,7 @@ async function postWL(body){
     headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();
 }
 async function addStock(){
-  const s=prompt("输入代码(A股 002475.SZ / 港股 2590.HK / 美股 AAPL.US):");
+  const s=prompt("输入代码(A股 600519.SH / 港股 700.HK / 美股 AAPL.US):");
   if(!s||!s.trim()) return;
   const btn=$("#stabAdd"); btn.textContent="校验中…"; btn.disabled=true;
   const j=await postWL({action:"add",symbol:s.trim()});
@@ -662,7 +662,7 @@ function drawPeers(d){
   });
   $("#ptab").innerHTML=h;
   const self=rows.find(r=>r.self), lead=rows.filter(r=>!r.is_idx).sort((a,b)=>a.from_high-b.from_high)[0];
-  $("#peersR").textContent = self&&lead&&self.sym===lead.sym?"新恒汇=板块跌幅第一":"板块横向";
+  $("#peersR").textContent = self&&lead&&self.sym===lead.sym?(self.name+"=板块跌幅第一"):"板块横向";
 }
 function drawSupply(d){
   const s=d.supply||{}; const dragonRows=(d.dragon||[]).filter(x=>!x.error);

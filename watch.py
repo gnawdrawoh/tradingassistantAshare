@@ -66,7 +66,7 @@ def push_mobile(title,body):
         t=ch.get("type")
         if t=="bark":
             base=ch.get("server","https://api.day.app").rstrip("/")
-            url=f"{base}/{ch['key']}/{quote(title)}/{quote(body)}?group={quote('盘面·新恒汇')}"
+            url=f"{base}/{ch['key']}/{quote(title)}/{quote(body)}?group={quote('盘面')}"
             if ch.get("sound"): url+=f"&sound={ch['sound']}"
             if ch.get("level"): url+=f"&level={ch['level']}"
             _get(url)
@@ -83,7 +83,7 @@ def emit(alerts):
     with open(ALERTS,"a",encoding="utf-8") as f:
         for a in alerts: f.write(json.dumps(a,ensure_ascii=False)+"\n")
     for a in alerts:
-        title=f"新恒汇 · {a['type']}"
+        title=f"盘面提醒 · {a['type']}"
         notify(title, a["msg"])          # macOS
         push_mobile(title, a["msg"])     # 手机
 

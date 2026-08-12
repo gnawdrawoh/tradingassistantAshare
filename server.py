@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-盘面 tracker backend — 新恒汇 301678
-Zero-dependency stdlib HTTP server. Pulls live data from the authenticated
-Longbridge CLI running on the coffee EC2 (over SSH) and computes:
+盘面 tracker backend — A股/港股/美股 panel analytics
+Zero-dependency stdlib HTTP server. Pulls live data from an authenticated
+Longbridge CLI on a reachable host (over SSH, set LB_SSH_HOST) and computes:
   - technical indicators (MA / EMA / MACD / RSI / KDJ / BOLL)
   - 主力资金 (大/中/小单净额 + 分时资金流)
   - 筹码分布 (cost / volume-profile with turnover decay)
@@ -15,14 +15,20 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ---------------- config ----------------
-SSH_HOST    = os.environ.get("LB_SSH_HOST", "temp-01-coffee")
-CIRC_SHARES = 138970967          # 流通股 fallback (refreshed from static per symbol)
-CACHE_TTL   = 15                 # seconds
 HERE        = os.path.dirname(os.path.abspath(__file__))
+def _load_json(name, default):
+    try:
+        with open(os.path.join(HERE, name), encoding="utf-8") as f: return json.load(f)
+    except Exception: return default
+CONFIG      = _load_json("config.json", {})     # 可选;见 config.example.json
+SSH_HOST    = os.environ.get("LB_SSH_HOST") or CONFIG.get("ssh_host") or "localhost"
+CIRC_SHARES = 100000000          # 流通股 fallback (会被 static 覆盖)
+CACHE_TTL   = 15                 # seconds
 WL_FILE     = os.path.join(HERE, "watchlist.json")
-DEFAULT_WL  = [{"symbol":"301678.SZ","name":"新恒汇"},
-               {"symbol":"002475.SZ","name":"立讯精密"},
-               {"symbol":"2590.HK","name":"极智嘉-W"}]
+DEFAULT_WL  = CONFIG.get("watchlist") or [
+    {"symbol":"AAPL.US","name":"Apple"},
+    {"symbol":"700.HK","name":"Tencent"},
+    {"symbol":"600519.SH","name":"Kweichow Moutai"}]
 
 def load_wl():
     try:
@@ -44,20 +50,16 @@ _cache  = {}   # sym -> {ts,data}
 _pcache = {}   # sym -> {ts,data}
 _scache = {}   # sym -> {ts,data}
 
-# 同板块:按标的配置;未配置的只跟大盘指数比
-IDX_A  = [("399006.SZ","创业板指"),("000688.SH","科创50")]
+# 同板块:可在 peers.json 里给某标的配同业(见 peers.example.json);未配置的只跟大盘指数比
+IDX_A  = [("000001.SH","上证指数"),("399006.SZ","创业板指")]
 IDX_HK = [("800000.HK","恒生指数")]
-PEER_MAP = {
- "301678.SZ":[("301678.SZ","新恒汇"),("002119.SZ","康强电子"),("600584.SH","长电科技"),
-   ("002156.SZ","通富微电"),("002185.SZ","华天科技"),("603005.SH","晶方科技"),
-   ("002049.SZ","紫光国微")]+IDX_A,
- "002475.SZ":[("002475.SZ","立讯精密"),("002241.SZ","歌尔股份"),("300433.SZ","蓝思科技"),
-   ("601138.SH","工业富联"),("002600.SZ","领益智造")]+IDX_A,
-}
+IDX_US = [(".IXIC.US","纳斯达克"),(".INX.US","标普500")]
+PEER_MAP = {s:[tuple(x) for x in grp] for s,grp in _load_json("peers.json", {}).items()}
+def _idx_for(sym):
+    return IDX_HK if sym.endswith(".HK") else IDX_US if sym.endswith(".US") else IDX_A
 def peers_for(sym):
-    if sym in PEER_MAP: return PEER_MAP[sym]
-    idx = IDX_HK if sym.endswith(".HK") else IDX_A
-    return [(sym, wl_name(sym))] + idx
+    grp = PEER_MAP.get(sym) or [(sym, wl_name(sym))]
+    return grp + _idx_for(sym)
 
 # ---------------- data fetch ----------------
 def _ssh_batch(SYMBOL):
@@ -412,7 +414,7 @@ def compute_peers(target=None):
         r2w=(prev-c630)/c630*100 if c630 else 0
         rows.append({"sym":sym,"name":name,"last":last,"chg":chg,
                      "from_high":from_high,"r2w":r2w,
-                     "is_idx":sym in("399006.SZ","000688.SH","000001.SH","800000.HK"),
+                     "is_idx":sym in {s for s,_ in IDX_A+IDX_HK+IDX_US},
                      "self":sym==target})
     return {"rows":rows,"updated":time.strftime("%H:%M:%S")}
 
@@ -604,7 +606,7 @@ class H(BaseHTTPRequestHandler):
                 arr=json.loads(out or "[]"); nm=(arr[0].get("name") if arr else None)
             except Exception as ex: nm=None
             if not nm:
-                return self._send(200,json.dumps({"ok":False,"error":f"找不到标的 {sym}(格式如 002475.SZ / 2590.HK / AAPL.US)"},ensure_ascii=False).encode("utf-8"),"application/json")
+                return self._send(200,json.dumps({"ok":False,"error":f"找不到标的 {sym}(格式如 600519.SH / 700.HK / AAPL.US)"},ensure_ascii=False).encode("utf-8"),"application/json")
             wl.append({"symbol":sym,"name":nm}); save_wl(wl)
         elif act=="remove" and sym:
             wl=[x for x in wl if x["symbol"]!=sym]
