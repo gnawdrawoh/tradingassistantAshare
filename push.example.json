@@ -1,0 +1,6 @@
+[
+  { "type": "bark", "key": "你的BarkKey", "sound": "alarm", "level": "timeSensitive" },
+  { "type": "serverchan", "key": "你的SendKey_SCTxxxx" },
+  { "type": "pushdeer", "key": "你的PushKey" },
+  { "type": "webhook", "url": "https://你的webhook", "extra": {"channel":"stock"} }
+]

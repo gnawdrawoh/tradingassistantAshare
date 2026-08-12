@@ -1,0 +1,9 @@
+# secrets — 绝不上传
+.deepseek_key
+.deepseek_model
+push.json
+# 运行时数据/缓存
+archive/
+__pycache__/
+*.pyc
+.DS_Store
