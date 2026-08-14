@@ -201,6 +201,22 @@ header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
   .ai-body{grid-template-columns:1fr}
   #subPanel .subwrap{grid-template-columns:1fr} .supwrap{grid-template-columns:1fr} .stat-strip{width:100%;margin-left:0}}
 
+/* ---- 麦克风权限弹窗 ---- */
+.modal-mask{display:none;position:fixed;inset:0;z-index:200;background:rgba(6,9,14,.72);
+  backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px}
+.modal-mask.show{display:flex}
+.modal-card{width:320px;max-width:92vw;background:linear-gradient(180deg,rgba(30,40,54,.96),rgba(16,22,30,.98));
+  border:1px solid rgba(74,168,255,.3);border-radius:18px;padding:26px 24px;text-align:center;color:var(--text);
+  box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal-ic{font-size:38px;margin-bottom:6px}
+.modal-card h3{font-size:17px;margin:0 0 8px;letter-spacing:.5px}
+.modal-card p{font-size:12.5px;line-height:1.7;color:#b9c6d4;margin:0 0 8px}
+.modal-card p b{color:var(--cyan);font-weight:600}
+.modal-err{color:var(--up);font-size:11.5px;min-height:16px;margin-bottom:6px;line-height:1.5}
+.modal-btns{display:flex;gap:10px;margin-top:12px}
+.modal-btns button{flex:1;padding:11px;border-radius:11px;cursor:pointer;font-size:13px;font-weight:600;font-family:var(--cjk)}
+.mb-ghost{background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--muted)}
+.mb-primary{background:linear-gradient(135deg,#1f6feb,#3b82f6);border:0;color:#fff}
 /* ---- 手机优化 ---- */
 @media(max-width:640px){
   body{padding:8px}
@@ -335,6 +351,19 @@ header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
   </section>
 
   <div class="summary" id="summary"></div>
+</div>
+
+<div class="modal-mask" id="micModal">
+  <div class="modal-card">
+    <div class="modal-ic">🎙️</div>
+    <h3>开启语音功能</h3>
+    <p>允许麦克风后,就能<b>语音提问</b>和<b>免手对话</b>(说完自动发送、答案念给你听)。<br>只在你点 🎤 时录音,不会后台监听。</p>
+    <div class="modal-err" id="micModalErr"></div>
+    <div class="modal-btns">
+      <button class="mb-ghost" id="micLater">以后再说</button>
+      <button class="mb-primary" id="micAllow">允许麦克风</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -870,8 +899,36 @@ $("#cvMode").onchange=e=>{
   if(e.target.checked){ pushMsg("a","🎙️ 对话模式:点 🎤 说话 → 自动转写发送 → 答案念给你听 → 继续听。","a"); startRec(); }
   else{ stopRec(); window.speechSynthesis&&window.speechSynthesis.cancel(); }
 };
+// ---- 麦克风权限弹窗(主动询问)----
+function showMicModal(){ $("#micModalErr").textContent=""; $("#micModal").classList.add("show"); }
+function hideMicModal(){ $("#micModal").classList.remove("show"); }
+async function requestMic(){
+  if(!REC_OK){ $("#micModalErr").textContent="此浏览器不支持录音。"; return; }
+  $("#micModalErr").textContent="正在请求…";
+  try{
+    const s=await navigator.mediaDevices.getUserMedia({audio:true});
+    s.getTracks().forEach(t=>t.stop());
+    localStorage.setItem("micAsked","1"); hideMicModal();
+    pushMsg("a","✅ 麦克风已开启,点 🎤 即可语音提问,或勾选“对话模式”免手对话。","a");
+  }catch(e){
+    $("#micModalErr").textContent="未获得权限("+(e.name||e.message)+")。请在浏览器地址栏 🔒 或系统设置里允许麦克风后重试。";
+  }
+}
+async function micPermState(){
+  try{ return (await navigator.permissions.query({name:"microphone"})).state; }catch(e){ return "prompt"; }
+}
+async function maybeAskMic(){
+  if(!REC_OK || localStorage.getItem("micAsked")) return;
+  const st=await micPermState();
+  if(st==="granted"){ localStorage.setItem("micAsked","1"); return; }
+  if(st==="denied") return;                 // 已拒绝不再弹,改在点 🎤 时提示
+  showMicModal();
+}
+$("#micAllow").onclick=requestMic;
+$("#micLater").onclick=()=>{ localStorage.setItem("micAsked","1"); hideMicModal(); };
+$("#micModal").onclick=e=>{ if(e.target.id==="micModal") hideMicModal(); };
 window.addEventListener("resize",()=>Object.values(charts).forEach(c=>c.resize()));
-(async()=>{ await loadWL(); load(); loadExtra(); })();
+(async()=>{ await loadWL(); load(); loadExtra(); setTimeout(maybeAskMic,1800); })();
 setInterval(()=>load(), 20000); setInterval(()=>loadExtra(), 120000);
 </script>
 </body>
