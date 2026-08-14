@@ -559,6 +559,88 @@ def get_ai(mode, sym=None):
     if res.get("ok"): _aicache[k]={"ts":now,"data":res}
     return res
 
+# ---------------- 聊天 (DeepSeek function-calling,连通全部数据/agent) ----------------
+def _lb(cmd, timeout=45, limit=2600):
+    try:
+        out=subprocess.run(_cmd(cmd),capture_output=True,text=True,timeout=timeout).stdout or ""
+    except Exception as e: return f"(取数失败:{e})"
+    return out.strip()[:limit]
+
+def _tool(name, desc, extra=None):
+    props={"symbol":{"type":"string","description":"标的代码如301678.SZ/700.HK/AAPL.US;省略=当前标的"}}
+    if extra: props.update(extra)
+    return {"type":"function","function":{"name":name,"description":desc,
+            "parameters":{"type":"object","properties":props}}}
+CHAT_TOOLS=[
+ _tool("platform_snapshot","当前/指定标的的实时盘面:现价涨跌、技术指标(MA/MACD/KDJ/RSI/BOLL)、主力大中小单资金、筹码成本分布与获利比例、量化策略信号、平台量化评分、距高。回答技术面/资金面/走势问题时用。"),
+ _tool("financials","公司财务:资产负债/利润/现金流关键科目(带行业排名)+ 估值(PE/PB历史分位、行业排名)。回答业绩、财务、估值贵不贵等问题时用。"),
+ _tool("business_and_dividend","业务分部收入构成(各板块占比与同比)+ 分红派息历史。回答主营构成、分红问题时用。"),
+ _tool("news_and_disclosures","最新新闻 + 公司公告/信息披露(东财)。可选 keyword 做新闻搜索。回答最近有什么消息、公告、事件时用。",
+       {"keyword":{"type":"string","description":"可选,新闻关键词搜索"}}),
+ _tool("analyst_and_fundamentals","券商评级/目标价/盈利预测 + 平台录入的财报要点。回答机构怎么看、业绩要点时用。"),
+ _tool("ai_research","调用平台的多智能体AI研判(融合技术/资金/筹码/板块/基本面),返回综合评级+信号+各维度结论。需要综合判断/买卖倾向时用。"),
+]
+
+def run_tool(name, args, cur_sym):
+    sym=(args.get("symbol") or cur_sym or default_symbol()).strip().upper()
+    try:
+        if name=="platform_snapshot":
+            d,_=get_data(sym)
+            if not d: return "数据不可用"
+            dg=deepseek_import().digest(dict(d,_peers="",_supply="",_fund=""))
+            return (f"{d['meta']['name']}({sym}) | {dg['ind']} | {dg['money']} | {dg['chips']} | "
+                    f"量化:{dg['quant']} | {dg['score']}")
+        if name=="financials":
+            return f"[财务]{_lb(f'longbridge financial-report {sym} --format json',limit=1800)}\n[估值]{_lb(f'longbridge valuation {sym} --format json',limit=1400)}"
+        if name=="business_and_dividend":
+            return f"[业务分部]{_lb(f'longbridge business-segments {sym} --format json',limit=1400)}\n[分红]{_lb(f'longbridge dividend {sym} --format json',limit=900)}"
+        if name=="news_and_disclosures":
+            kw=args.get("keyword")
+            if kw: news=_lb(f'longbridge news search "{kw}" --count 6 --format json',limit=1600)
+            else:  news=_news_text(sym) or _lb(f'longbridge news {sym} --count 8 --format json',limit=1600)
+            return news[:2400]
+        if name=="analyst_and_fundamentals":
+            return (f"[券商评级]{_lb(f'longbridge institution-rating {sym} --format json',limit=900)}\n"
+                    f"[盈利预测]{_lb(f'longbridge forecast-eps {sym} --format json',limit=500)}\n"
+                    f"[财报要点]{_fund_text(sym) or '无'}")
+        if name=="ai_research":
+            r=get_ai("fast", sym)
+            return json.dumps(r.get("result",{}),ensure_ascii=False)[:2000] if r.get("ok") else f"AI研判失败:{r.get('error')}"
+    except Exception as e:
+        return f"(工具 {name} 执行出错:{e})"
+    return "未知工具"
+
+def deepseek_import():
+    import deepseek_analyst as da; return da
+
+CHAT_SYS=("你是嵌在A股/港股/美股盘面分析平台里的投研助手。用户问什么,先判断需要哪些数据,"
+    "用工具去取(盘面/财务/业务分红/新闻公告/券商预测/AI研判),再基于真实数据简洁作答。"
+    "遵循红涨绿跌(涨红跌绿)。默认围绕“当前标的”,除非用户指定了别的代码。"
+    "有具体数字就引用,不编造;工具没取到就如实说。只做数据解读,不构成投资建议。回答用中文,简明扼要。")
+
+def chat_answer(messages, sym):
+    da=deepseek_import(); key=da.get_key()
+    if not key: return {"ok":False,"error":"未配置 DeepSeek Key"}
+    convo=[{"role":"system","content":CHAT_SYS+f"\n(当前标的:{sym} {wl_name(sym)})"}]+messages
+    used=[]
+    try:
+        for _ in range(6):
+            msg=da.api_call(convo, key, tools=CHAT_TOOLS, model="deepseek-chat")
+            convo.append(msg)
+            tcs=msg.get("tool_calls")
+            if not tcs:
+                return {"ok":True,"answer":msg.get("content") or "(无回答)","tools":used}
+            for tc in tcs:
+                fn=tc["function"]["name"]
+                try: a=json.loads(tc["function"].get("arguments") or "{}")
+                except Exception: a={}
+                used.append(fn)
+                res=run_tool(fn, a, sym)
+                convo.append({"role":"tool","tool_call_id":tc["id"],"content":str(res)[:2800]})
+        return {"ok":True,"answer":(convo[-1].get("content") or "(工具调用过多,请重问)"),"tools":used}
+    except Exception as e:
+        return {"ok":False,"error":str(e)}
+
 # ---------------- http ----------------
 class H(BaseHTTPRequestHandler):
     def log_message(self,*a): pass
@@ -633,6 +715,16 @@ class H(BaseHTTPRequestHandler):
             return self._login_page("口令错误")
         if AUTH_PW and not self._authed():
             return self._send(401,json.dumps({"ok":False,"error":"未登录"}).encode(),"application/json")
+        if p=="/api/chat":
+            try:
+                n=int(self.headers.get("Content-Length") or 0)
+                req=json.loads(self.rfile.read(n).decode() or "{}")
+            except Exception:
+                return self._send(400,json.dumps({"ok":False,"error":"bad json"}).encode(),"application/json")
+            msgs=req.get("messages") or []
+            sym=(req.get("symbol") or default_symbol()).strip().upper()
+            res=chat_answer(msgs, sym)
+            return self._send(200,json.dumps(res,ensure_ascii=False).encode("utf-8"),"application/json")
         if p!="/api/watchlist": return self._send(404,b"not found","text/plain")
         try:
             n=int(self.headers.get("Content-Length") or 0)

@@ -60,7 +60,7 @@ header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
 /* grid */
 .grid{display:grid;gap:12px;
   grid-template-columns:2.15fr 1fr;
-  grid-template-areas:"alerts alerts" "kline chips" "sub sub" "flow score" "fund fund" "peers supply" "quant quant" "ai ai";}
+  grid-template-areas:"alerts alerts" "chat chat" "kline chips" "sub sub" "flow score" "fund fund" "peers supply" "quant quant" "ai ai";}
 .panel{border:1px solid var(--border);border-radius:14px;background:var(--panel);
   backdrop-filter:blur(10px);padding:12px 14px 6px;position:relative;overflow:hidden}
 .panel > .eye{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
@@ -73,6 +73,26 @@ header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
 #peersPanel{grid-area:peers} #supplyPanel{grid-area:supply}
 #quantPanel{grid-area:quant} #aiPanel{grid-area:ai}
 #alertsPanel{grid-area:alerts;border-color:rgba(232,184,75,.3)}
+#chatPanel{grid-area:chat;border-color:rgba(74,168,255,.28)}
+.chat-msgs{max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding:4px 2px 8px}
+.cmsg{max-width:88%;font-size:12.5px;line-height:1.6;border-radius:12px;padding:8px 12px}
+.cmsg.u{align-self:flex-end;background:rgba(74,168,255,.16);border:1px solid rgba(74,168,255,.25);color:#e6edf3}
+.cmsg.a{align-self:flex-start;background:rgba(255,255,255,.03);border:1px solid var(--border);color:#dbe4ee}
+.cmsg.a .tools{font-size:10px;color:var(--muted);margin-bottom:5px}
+.cmsg p{margin:5px 0} .cmsg h3{font-size:13px;color:var(--gold);margin:8px 0 4px} .cmsg h4{font-size:12px;color:var(--cyan);margin:7px 0 3px}
+.cmsg ul{margin:4px 0 4px 4px;padding-left:14px} .cmsg li{margin:2px 0}
+.cmsg code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px;font-family:var(--mono);font-size:11px}
+.cmsg .md-tab{border-collapse:collapse;font-size:11.5px;margin:6px 0;width:100%}
+.cmsg .md-tab th,.cmsg .md-tab td{border:1px solid var(--border);padding:3px 7px;text-align:left;font-family:var(--mono)}
+.cmsg .md-tab th{color:var(--muted);background:rgba(255,255,255,.03)}
+.cmsg.typing{color:var(--muted);font-style:italic}
+.chat-in{display:flex;gap:8px;margin-top:4px}
+.chat-in input{flex:1;padding:10px 13px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.22);color:var(--text);font-size:13px;font-family:var(--cjk);outline:none}
+.chat-in input:focus{border-color:var(--cyan)}
+.chat-in button{padding:10px 18px;border:0;border-radius:10px;cursor:pointer;background:linear-gradient(135deg,#1f6feb,#3b82f6);color:#fff;font-size:13px;font-weight:600;font-family:var(--cjk)}
+.chat-in button:disabled{opacity:.5;cursor:wait}
+.chat-hint{font-size:10.5px;color:var(--muted);margin-top:7px;line-height:1.7}
+.chat-hint b{color:#9fb0c0;cursor:pointer;font-weight:400;border-bottom:1px dashed rgba(255,255,255,.15)}
 #fundPanel{grid-area:fund}
 .fgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:9px}
 .fcell{border:1px solid var(--border);border-radius:9px;padding:8px 10px;background:rgba(255,255,255,.02)}
@@ -172,7 +192,7 @@ header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
 .summary b{color:var(--gold);font-weight:600}
 .err{color:var(--gold);font-family:var(--mono);font-size:11px}
 @media(max-width:960px){.grid{grid-template-columns:1fr;
-  grid-template-areas:"alerts" "kline" "chips" "sub" "flow" "score" "fund" "peers" "supply" "quant" "ai"}
+  grid-template-areas:"alerts" "chat" "kline" "chips" "sub" "flow" "score" "fund" "peers" "supply" "quant" "ai"}
   .ai-body{grid-template-columns:1fr}
   #subPanel .subwrap{grid-template-columns:1fr} .supwrap{grid-template-columns:1fr} .stat-strip{width:100%;margin-left:0}}
 </style>
@@ -190,6 +210,16 @@ header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
   <section class="panel" id="alertsPanel" style="display:none">
     <div class="eye"><span class="t">信号提醒 · 今日</span><span class="r" id="alertsR"></span></div>
     <div id="alertsList"></div>
+  </section>
+
+  <section class="panel" id="chatPanel">
+    <div class="eye"><span class="t">AI 投研问答 · DeepSeek</span><span class="r" id="chatSym"></span></div>
+    <div class="chat-msgs" id="chatMsgs"></div>
+    <div class="chat-in">
+      <input id="chatIn" placeholder="问点什么…(公告/财务/估值/走势/主力/综合研判,可指定别的代码)" autocomplete="off">
+      <button id="chatSend">发送</button>
+    </div>
+    <div class="chat-hint">试试:<b data-q="最近有什么重要公告或信息披露?">最近公告披露</b> · <b data-q="财务和估值现在怎么样?">财务估值</b> · <b data-q="主力资金在吸筹还是出货?筹码结构如何?">主力/筹码</b> · <b data-q="综合技术/资金/基本面研判一下,给个倾向">综合研判</b> · <b data-q="主营业务构成和分红情况?">业务分红</b></div>
   </section>
 
   <section class="panel" id="klinePanel">
@@ -333,6 +363,7 @@ function switchTo(s){
 function reloadAll(){
   $("#aiOut").innerHTML=`<div class="ai-empty" id="aiEmpty">切换标的后请重新运行研判。</div>`;
   $("#aiRating").innerHTML=""; $("#aiSig").style.display="none"; $("#aiR").textContent="";
+  clearChat();
   load(); loadExtra();
 }
 
@@ -351,6 +382,7 @@ function setLive(err){
 function render(){
   const d=DATA, q=d.quote;
   $("#nm").textContent=d.meta.name; $("#cd").textContent=d.meta.symbol;
+  $("#chatSym").textContent=d.meta.name+" "+d.meta.symbol;
   const col=sgn(q.chg);
   $("#px").textContent=q.last.toFixed(2); $("#px").style.color=col;
   $("#chg").textContent=`${arrow(q.chg)} ${q.chg>=0?"+":""}${q.chg.toFixed(2)}  ${q.chg_pct>=0?"+":""}${q.chg_pct.toFixed(2)}%`;
@@ -618,6 +650,50 @@ async function runAI(){
   finally{ btn.disabled=false; btn.textContent="重新研判"; }
 }
 const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+// ---- 极简 markdown 渲染(先转义,防注入)----
+function md(t){
+  t=esc(t||"");
+  t=t.replace(/(^\|.*\|[ \t]*\n\|[ \t:|\-]+\|[ \t]*\n(?:\|.*\|[ \t]*\n?)*)/gm,m=>{
+    const rows=m.trim().split("\n").filter(r=>r.trim());
+    const cells=r=>r.split("|").slice(1,-1).map(c=>c.trim());
+    const head=cells(rows[0]);
+    let h='<table class="md-tab"><thead><tr>'+head.map(c=>`<th>${c}</th>`).join("")+"</tr></thead><tbody>";
+    rows.slice(2).forEach(r=>h+="<tr>"+cells(r).map(c=>`<td>${c}</td>`).join("")+"</tr>");
+    return h+"</tbody></table>";
+  });
+  t=t.replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/`([^`]+?)`/g,"<code>$1</code>");
+  t=t.replace(/^#{1,2} (.*)$/gm,"<h3>$1</h3>").replace(/^#{3,} (.*)$/gm,"<h4>$1</h4>");
+  t=t.replace(/^\s*[-*] (.*)$/gm,"<li>$1</li>").replace(/(?:<li>.*<\/li>\s*)+/g,m=>"<ul>"+m+"</ul>");
+  return t.split(/\n{2,}/).map(b=>/^\s*<(h3|h4|table|ul)/.test(b)?b:("<p>"+b.replace(/\n/g,"<br>")+"</p>")).join("");
+}
+let CHATLOG=[], chatBusy=false;
+function pushMsg(role, html, cls){
+  const d=document.createElement("div"); d.className="cmsg "+(cls||role);
+  d.innerHTML=html; $("#chatMsgs").appendChild(d);
+  $("#chatMsgs").scrollTop=$("#chatMsgs").scrollHeight; return d;
+}
+function clearChat(){ CHATLOG=[]; $("#chatMsgs").innerHTML=""; }
+async function sendChat(q){
+  if(chatBusy) return;
+  const text=(q!==undefined?q:$("#chatIn").value).trim(); if(!text) return;
+  $("#chatIn").value=""; chatBusy=true; $("#chatSend").disabled=true;
+  pushMsg("u", esc(text), "u"); CHATLOG.push({role:"user",content:text});
+  const typing=pushMsg("a","正在思考…(可能实时查询盘面/财务/公告等数据源)","a typing");
+  try{
+    const r=await (await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({symbol:CURSYM,messages:CHATLOG})})).json();
+    typing.remove();
+    if(!r.ok){ pushMsg("a","⚠️ "+esc(r.error||"出错"),"a"); }
+    else{
+      const tools=(r.tools&&r.tools.length)?`<div class="tools">↪ 调用了 ${[...new Set(r.tools)].join(" · ")}</div>`:"";
+      pushMsg("a", tools+md(r.answer), "a");
+      CHATLOG.push({role:"assistant",content:r.answer});
+      if(CHATLOG.length>12) CHATLOG=CHATLOG.slice(-12);   // 控制上下文长度
+    }
+  }catch(e){ typing.remove(); pushMsg("a","请求失败:"+esc(e.message),"a"); }
+  finally{ chatBusy=false; $("#chatSend").disabled=false; $("#chatIn").focus(); }
+}
 function renderAI(r){
   const R=r.result||{}; const rating=R["综合评级"]||R["日内趋势"]||"—";
   const sig=Math.max(-100,Math.min(100,+R["信号"]||0));
@@ -702,6 +778,9 @@ function setAuto(on){
 }
 $("#aiAuto").onchange=e=>setAuto(e.target.checked);
 $("#aiRun").onclick=runAI;
+$("#chatSend").onclick=()=>sendChat();
+$("#chatIn").addEventListener("keydown",e=>{ if(e.key==="Enter"){e.preventDefault();sendChat();} });
+document.querySelectorAll(".chat-hint b").forEach(b=>b.onclick=()=>sendChat(b.dataset.q));
 window.addEventListener("resize",()=>Object.values(charts).forEach(c=>c.resize()));
 (async()=>{ await loadWL(); load(); loadExtra(); })();
 setInterval(()=>load(), 20000); setInterval(()=>loadExtra(), 120000);

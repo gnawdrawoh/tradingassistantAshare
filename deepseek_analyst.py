@@ -55,6 +55,28 @@ def _chat(system, user, key, max_tokens=1400, temperature=0.4, model=None):
             if attempt<2: time.sleep(2*(attempt+1)); continue
     raise last if last else RuntimeError("DeepSeek 调用失败")
 
+def api_call(messages, key, tools=None, model="deepseek-chat", max_tokens=2200, temperature=0.3):
+    """底层带 tools(function-calling)的对话调用,返回 assistant message dict(可能含 tool_calls)。"""
+    payload={"model":model,"messages":messages,"max_tokens":max_tokens,
+             "temperature":temperature,"stream":False}
+    if tools: payload["tools"]=tools; payload["tool_choice"]="auto"
+    body=json.dumps(payload,ensure_ascii=False).encode()
+    last=None
+    for attempt in range(3):
+        req=urllib.request.Request(BASE.rstrip("/")+"/chat/completions", data=body,
+            headers={"Authorization":"Bearer "+key,"Content-Type":"application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return json.loads(r.read().decode())["choices"][0]["message"]
+        except urllib.error.HTTPError as e:
+            if 500<=e.code<600 and attempt<2: last=e; time.sleep(2*(attempt+1)); continue
+            raise
+        except (http.client.IncompleteRead, urllib.error.URLError, socket.timeout,
+                ConnectionError, TimeoutError, json.JSONDecodeError) as e:
+            last=e
+            if attempt<2: time.sleep(2*(attempt+1)); continue
+    raise last if last else RuntimeError("DeepSeek 调用失败")
+
 # ---------- 把平台数据压成给模型看的数字摘要 ----------
 def digest(d):
     q=d["quote"]; c=d["calc"]; m=d["main"]; ch=d["chips"]; sc=d["score"]
