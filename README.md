@@ -76,6 +76,15 @@ flowchart TD
 - **Longbridge CLI**,已认证,装在一台你能 SSH 到的主机上
   (`ssh <your-host> longbridge check` 应显示 token 有效)。见 https://open.longbridge.com
 - (可选)**DeepSeek API key**——启用 AI 研判。https://platform.deepseek.com
+- (可选)**语音输入**:自建 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) + `ffmpeg`(无需 key)。
+  chat 的 🎤 用浏览器录音 → `/api/stt` → whisper 转写(iPhone 也支持)。安装:
+  ```bash
+  sudo apt-get install -y ffmpeg build-essential cmake
+  git clone https://github.com/ggml-org/whisper.cpp && cd whisper.cpp
+  bash ./models/download-ggml-model.sh base && cmake -B build && cmake --build build -j
+  ```
+  服务器自动找 `~/whisper.cpp/build/bin/whisper-cli` + `models/ggml-base.bin`(可用
+  `WHISPER_BIN`/`WHISPER_MODEL` 覆盖;换 `ggml-small.bin` 更准但更慢)。未安装则 🎤 会提示。
 
 ## 配置(把 `*.example.json` 复制成同名去掉 `.example`)
 ```bash

@@ -10,7 +10,7 @@ Longbridge CLI on a reachable host (over SSH, set LB_SSH_HOST) and computes:
   - a composite 盘面强弱 score with transparent sub-signals
 Run:  python3 server.py [port]
 """
-import json, subprocess, time, threading, sys, os, math, hashlib
+import json, subprocess, time, threading, sys, os, math, hashlib, tempfile, shutil
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -579,6 +579,28 @@ def get_ai(mode, sym=None):
     if res.get("ok"): _aicache[k]={"ts":now,"data":res}
     return res
 
+# ---------------- 语音转写 (自建 whisper.cpp,无需 API key) ----------------
+WHISPER_BIN   = os.environ.get("WHISPER_BIN")   or os.path.expanduser("~/whisper.cpp/build/bin/whisper-cli")
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL") or os.path.expanduser("~/whisper.cpp/models/ggml-base.bin")
+def transcribe(data, ext):
+    if not (os.path.exists(WHISPER_BIN) and os.path.exists(WHISPER_MODEL)):
+        return None, "语音转写未安装(whisper.cpp)"
+    d=tempfile.mkdtemp(prefix="stt_")
+    inp=os.path.join(d,"in."+(ext or "webm")); wav=os.path.join(d,"a.wav")
+    try:
+        with open(inp,"wb") as f: f.write(data)
+        r1=subprocess.run(["ffmpeg","-y","-i",inp,"-ar","16000","-ac","1","-f","wav",wav],
+                          capture_output=True,timeout=30)
+        if not os.path.exists(wav): return None, "音频解码失败"
+        r=subprocess.run([WHISPER_BIN,"-m",WHISPER_MODEL,"-f",wav,"-nt","-np","-t","2","-l","zh"],
+                         capture_output=True,text=True,timeout=120)
+        txt=(r.stdout or "").strip().replace("\n"," ").strip()
+        return (txt or ""), None
+    except Exception as e:
+        return None, str(e)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
 # ---------------- 聊天 (DeepSeek function-calling,连通全部数据/agent) ----------------
 def _lb(cmd, timeout=45, limit=2600):
     try:
@@ -748,6 +770,14 @@ class H(BaseHTTPRequestHandler):
         ok=self._authed()
         if AUTH_ON and not ok:
             return self._send(401,json.dumps({"ok":False,"error":"未登录"}).encode(),"application/json")
+        if p=="/api/stt":
+            n=int(self.headers.get("Content-Length") or 0)
+            data=self.rfile.read(n)
+            ct=(self.headers.get("Content-Type") or "").lower()
+            ext=("mp4" if "mp4" in ct or "m4a" in ct else "ogg" if "ogg" in ct or "opus" in ct
+                 else "wav" if "wav" in ct else "webm")
+            txt,err=transcribe(data, ext)
+            return self._send(200,json.dumps({"ok":txt is not None,"text":txt or "","error":err},ensure_ascii=False).encode("utf-8"),"application/json")
         if p=="/api/chat":
             try:
                 n=int(self.headers.get("Content-Length") or 0)

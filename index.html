@@ -822,44 +822,53 @@ $("#chatIn").addEventListener("keydown",e=>{ if(e.key==="Enter"){e.preventDefaul
 document.querySelectorAll(".chat-hint b").forEach(b=>b.onclick=()=>sendChat(b.dataset.q));
 
 // ---- 语音输入 + 对话模式(Web Speech API,浏览器原生,无需后端)----
-const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-let recog=null, listening=false;
 const cvOn=()=>$("#cvMode")&&$("#cvMode").checked;
 function stripMd(t){return (t||"").replace(/[#*`>_~]|\|/g,"").replace(/\s+/g," ").trim().slice(0,280);}
-function speak(text){
+function speak(text){                                    // 朗读答案(TTS,iPhone 也支持)
   if(!window.speechSynthesis||!text) return;
   window.speechSynthesis.cancel();
   const u=new SpeechSynthesisUtterance(text); u.lang="zh-CN"; u.rate=1.05;
   const zh=(window.speechSynthesis.getVoices()||[]).find(v=>/zh|Chinese|普通话/i.test(v.lang+v.name));
   if(zh) u.voice=zh;
-  u.onend=()=>{ if(cvOn()) setTimeout(startListen,300); };  // 说完继续听
+  u.onend=()=>{ if(cvOn()) setTimeout(startRec,350); };  // 说完继续听
   window.speechSynthesis.speak(u);
 }
-const ERRMAP={"not-allowed":"麦克风被拒绝:请在浏览器/系统设置里允许本站使用麦克风","service-not-allowed":"系统语音服务未开启","no-speech":"没听到声音,再说一次","audio-capture":"未检测到麦克风","network":"语音识别网络错误,请重试","aborted":""};
-function micHint(){
-  $("#chatIn").focus();
-  pushMsg("a","🎤 本浏览器不支持网页语音识别(<b>iPhone 的 Safari/Chrome 都受此限制</b>)。<br>👉 点上方输入框,用<b>手机键盘上的 🎤 听写</b>说话再发送即可。<br>(答案朗读/对话模式的“念答案”在 iPhone 上仍可用。)","a");
+// 语音输入:浏览器录音 → 服务器 whisper 转写(跨平台,iPhone 也支持)
+const REC_OK=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
+let mediaRec=null, mchunks=[], mstream=null, recording=false;
+function micUI(on){ recording=on; const b=$("#chatMic"); b.classList.toggle("on",on); b.textContent=on?"🔴":"🎤"; }
+async function startRec(){
+  if(recording||chatBusy) return;
+  if(!REC_OK){ pushMsg("a","此浏览器不支持录音;请点输入框用键盘的 🎤 听写。","a"); return; }
+  try{ mstream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+  catch(e){ pushMsg("a","⚠️ 麦克风未授权("+(e.name||e.message)+"):请在浏览器允许本站使用麦克风后重试。","a"); return; }
+  mchunks=[]; let opt;
+  for(const m of ["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/aac"]){
+    if(window.MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(m)){ opt={mimeType:m}; break; } }
+  try{ mediaRec=new MediaRecorder(mstream,opt); }catch(e){ mediaRec=new MediaRecorder(mstream); }
+  mediaRec.ondataavailable=e=>{ if(e.data&&e.data.size) mchunks.push(e.data); };
+  mediaRec.onstop=onRecStop; mediaRec.start(); micUI(true);
 }
-function startListen(){
-  if(listening||chatBusy) return;
-  if(!SR){ micHint(); return; }
-  try{ recog=new SR(); }catch(e){ micHint(); return; }
-  recog.lang="zh-CN"; recog.interimResults=true; recog.continuous=false; recog.maxAlternatives=1;
-  listening=true; $("#chatMic").classList.add("on"); $("#chatMic").textContent="🔴";
-  recog.onresult=e=>{ let t=""; for(const r of e.results) t+=r[0].transcript; $("#chatIn").value=t; };
-  recog.onerror=ev=>{ const m=ERRMAP[ev.error]; if(m===undefined) pushMsg("a","⚠️ 语音出错:"+ev.error,"a"); else if(m) pushMsg("a","⚠️ "+m,"a"); };
-  recog.onend=()=>{ listening=false; $("#chatMic").classList.remove("on"); $("#chatMic").textContent="🎤";
-    const q=$("#chatIn").value.trim(); if(cvOn() && q) sendChat(q); };
-  try{ recog.start(); }catch(e){ listening=false; $("#chatMic").classList.remove("on"); $("#chatMic").textContent="🎤"; pushMsg("a","⚠️ 无法启动语音:"+(e.message||e),"a"); }
+function stopRec(){ if(mediaRec&&recording){ try{mediaRec.stop();}catch(e){} } }
+async function onRecStop(){
+  micUI(false);
+  if(mstream){ mstream.getTracks().forEach(t=>t.stop()); mstream=null; }
+  const type=(mediaRec&&mediaRec.mimeType)||"audio/webm";
+  const blob=new Blob(mchunks,{type});
+  if(blob.size<700) return;                              // 太短/空录音
+  const tip=pushMsg("a","🎧 语音转写中…","a typing");
+  try{
+    const r=await (await fetch("/api/stt",{method:"POST",headers:{"Content-Type":type},body:blob})).json();
+    tip.remove();
+    if(r.ok && r.text){ $("#chatIn").value=r.text; if(cvOn()) sendChat(r.text); }
+    else pushMsg("a","⚠️ 没识别到内容"+(r.error?("("+r.error+")"):"")+",再说一次。","a");
+  }catch(e){ tip.remove(); pushMsg("a","⚠️ 转写请求失败:"+e.message,"a"); }
 }
-function stopListen(){ if(recog){ try{recog.stop();}catch(e){} } listening=false; }
-$("#chatMic").style.display=""; $("#cvWrap").style.display="";     // 始终显示(不支持时给提示)
-$("#chatMic").onclick=()=> listening?stopListen():startListen();
+$("#chatMic").style.display=""; $("#cvWrap").style.display="";
+$("#chatMic").onclick=()=> recording?stopRec():startRec();
 $("#cvMode").onchange=e=>{
-  if(e.target.checked){
-    if(SR){ pushMsg("a","🎙️ 对话模式:点 🎤 说话,答完会念给你听并继续听。","a"); startListen(); }
-    else{ pushMsg("a","🎙️ 对话模式:此设备不支持网页语音输入,但答案会<b>朗读</b>出来;语音提问请用手机键盘的 🎤 听写。","a"); }
-  } else { stopListen(); window.speechSynthesis&&window.speechSynthesis.cancel(); }
+  if(e.target.checked){ pushMsg("a","🎙️ 对话模式:点 🎤 说话 → 自动转写发送 → 答案念给你听 → 继续听。","a"); startRec(); }
+  else{ stopRec(); window.speechSynthesis&&window.speechSynthesis.cancel(); }
 };
 window.addEventListener("resize",()=>Object.values(charts).forEach(c=>c.resize()));
 (async()=>{ await loadWL(); load(); loadExtra(); })();
