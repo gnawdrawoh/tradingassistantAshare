@@ -91,6 +91,11 @@ header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
 .chat-in input:focus{border-color:var(--cyan)}
 .chat-in button{padding:10px 18px;border:0;border-radius:10px;cursor:pointer;background:linear-gradient(135deg,#1f6feb,#3b82f6);color:#fff;font-size:13px;font-weight:600;font-family:var(--cjk)}
 .chat-in button:disabled{opacity:.5;cursor:wait}
+#chatMic{padding:10px 12px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:16px;line-height:1}
+#chatMic.on{background:var(--up-dim);border-color:var(--up);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.55}}
+.cvmode{font-size:11px;color:var(--muted);cursor:pointer;user-select:none;margin-right:8px}
+.cvmode input{accent-color:var(--cyan);vertical-align:-1px}
 .chat-hint{font-size:10.5px;color:var(--muted);margin-top:7px;line-height:1.7}
 .chat-hint b{color:#9fb0c0;cursor:pointer;font-weight:400;border-bottom:1px dashed rgba(255,255,255,.15)}
 #fundPanel{grid-area:fund}
@@ -195,6 +200,36 @@ header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
   grid-template-areas:"alerts" "chat" "kline" "chips" "sub" "flow" "score" "fund" "peers" "supply" "quant" "ai"}
   .ai-body{grid-template-columns:1fr}
   #subPanel .subwrap{grid-template-columns:1fr} .supwrap{grid-template-columns:1fr} .stat-strip{width:100%;margin-left:0}}
+
+/* ---- 手机优化 ---- */
+@media(max-width:640px){
+  body{padding:8px}
+  .grid{gap:9px}
+  .panel{padding:10px 11px 5px;border-radius:12px}
+  .eye .t{letter-spacing:.6px;font-size:11px}
+  /* 头部紧凑 */
+  header{gap:8px;padding:12px 14px;border-radius:14px}
+  .brand{min-width:0} .brand .nm{font-size:18px} .brand .cd{font-size:11px}
+  .px .big{font-size:30px} .px .chg{font-size:14px}
+  .stat-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:11px 8px}
+  .stat{min-width:0} .stat .k{font-size:10px} .stat .v{font-size:13px}
+  /* 自选栏 */
+  .stab{padding:4px 9px;font-size:11.5px} .stab .cd{display:none} .stab-add{padding:4px 10px;font-size:11.5px}
+  /* 图表变矮 */
+  #kline{height:300px!important} #chips{height:300px!important}
+  #macd,#kdj,#rsi{height:150px!important} #flow{height:150px!important} #gauge{height:130px!important}
+  /* 量化表:隐藏"规则""交易"列 + 缩字,消除横向溢出 */
+  .qtab{font-size:11px} .qtab th,.qtab td{padding:4px 4px}
+  .qtab th:nth-child(2),.qtab td.d,.qtab th:last-child,.qtab td:last-child{display:none}
+  .ptab{font-size:11px} .ptab th,.ptab td{padding:4px 4px} .ptab .hbar{display:none}
+  .dtab{font-size:10.5px} .dtab td.rsn{max-width:96px}
+  .fgrid{gap:6px} .fcell{padding:6px 8px} .fcell .v{font-size:14px}
+  .money-row{flex-wrap:wrap} .mcell .v{font-size:15px}
+  /* 摘要/聊天/AI */
+  .summary{font-size:12px} .chat-msgs{max-height:52vh} .cmsg{max-width:92%;font-size:12px}
+  .ai-body{grid-template-columns:1fr} .ai-rating{font-size:13px}
+  .seg button{padding:3px 8px;font-size:11px}
+}
 </style>
 </head>
 <body>
@@ -213,9 +248,11 @@ header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
   </section>
 
   <section class="panel" id="chatPanel">
-    <div class="eye"><span class="t">AI 投研问答 · DeepSeek</span><span class="r" id="chatSym"></span></div>
+    <div class="eye"><span class="t">AI 投研问答 · DeepSeek</span>
+      <span class="r"><label class="cvmode" id="cvWrap" style="display:none"><input type="checkbox" id="cvMode"> 对话模式</label> <span id="chatSym"></span></span></div>
     <div class="chat-msgs" id="chatMsgs"></div>
     <div class="chat-in">
+      <button id="chatMic" title="语音输入" style="display:none">🎤</button>
       <input id="chatIn" placeholder="问点什么…(公告/财务/估值/走势/主力/综合研判,可指定别的代码)" autocomplete="off">
       <button id="chatSend">发送</button>
     </div>
@@ -449,7 +486,8 @@ function drawKline(){
     ? {t:d.kline.t,o:d.kline.o,c:d.kline.c,l:d.kline.l,h:d.kline.h,v:d.kline.v}
     : {t:iv.t.map((x,i)=>((iv.d&&iv.d[i]?iv.d[i].slice(5)+" ":"")+x)),
        o:iv.o,h:iv.h,l:iv.l,c:iv.c,v:iv.v};
-  const n=src.t.length; const start=Math.max(0,100-(isDay?90:64)/Math.max(n,1)*100);
+  const MOBILE=window.innerWidth<640;
+  const n=src.t.length; const start=Math.max(0,100-(isDay?(MOBILE?42:90):(MOBILE?30:64))/Math.max(n,1)*100);
   const candle=src.t.map((_,i)=>[src.o[i],src.c[i],src.l[i],src.h[i]]);
   const series=[{type:"candlestick",data:candle,
     itemStyle:{color:UP,color0:DOWN,borderColor:UP,borderColor0:DOWN}}];
@@ -688,6 +726,7 @@ async function sendChat(q){
     else{
       const tools=(r.tools&&r.tools.length)?`<div class="tools">↪ 调用了 ${[...new Set(r.tools)].join(" · ")}</div>`:"";
       pushMsg("a", tools+md(r.answer), "a");
+      if(typeof cvOn==="function" && cvOn()) speak(stripMd(r.answer));   // 对话模式:念出来
       CHATLOG.push({role:"assistant",content:r.answer});
       if(CHATLOG.length>12) CHATLOG=CHATLOG.slice(-12);   // 控制上下文长度
     }
@@ -781,6 +820,38 @@ $("#aiRun").onclick=runAI;
 $("#chatSend").onclick=()=>sendChat();
 $("#chatIn").addEventListener("keydown",e=>{ if(e.key==="Enter"){e.preventDefault();sendChat();} });
 document.querySelectorAll(".chat-hint b").forEach(b=>b.onclick=()=>sendChat(b.dataset.q));
+
+// ---- 语音输入 + 对话模式(Web Speech API,浏览器原生,无需后端)----
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let recog=null, listening=false;
+const cvOn=()=>$("#cvMode")&&$("#cvMode").checked;
+function stripMd(t){return (t||"").replace(/[#*`>_~]|\|/g,"").replace(/\s+/g," ").trim().slice(0,280);}
+function speak(text){
+  if(!window.speechSynthesis||!text) return;
+  window.speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text); u.lang="zh-CN"; u.rate=1.05;
+  const zh=(window.speechSynthesis.getVoices()||[]).find(v=>/zh|Chinese|普通话/i.test(v.lang+v.name));
+  if(zh) u.voice=zh;
+  u.onend=()=>{ if(cvOn()) setTimeout(startListen,300); };  // 说完继续听
+  window.speechSynthesis.speak(u);
+}
+function startListen(){
+  if(!SR||listening||chatBusy) return;
+  try{ recog=new SR(); }catch(e){ return; }
+  recog.lang="zh-CN"; recog.interimResults=true; recog.continuous=false; recog.maxAlternatives=1;
+  listening=true; $("#chatMic").classList.add("on"); $("#chatMic").textContent="🔴";
+  recog.onresult=e=>{ let t=""; for(const r of e.results) t+=r[0].transcript; $("#chatIn").value=t; };
+  recog.onerror=()=>{};
+  recog.onend=()=>{ listening=false; $("#chatMic").classList.remove("on"); $("#chatMic").textContent="🎤";
+    const q=$("#chatIn").value.trim(); if(cvOn() && q) sendChat(q); };
+  try{ recog.start(); }catch(e){ listening=false; }
+}
+function stopListen(){ if(recog){ try{recog.stop();}catch(e){} } listening=false; }
+if(SR){
+  $("#chatMic").style.display=""; $("#cvWrap").style.display="";
+  $("#chatMic").onclick=()=> listening?stopListen():startListen();
+  $("#cvMode").onchange=e=>{ if(e.target.checked){ pushMsg("a","🎙️ 对话模式开启:点麦克风说话,答完会念给你听并继续听。","a"); startListen(); } else { stopListen(); window.speechSynthesis&&window.speechSynthesis.cancel(); } };
+}
 window.addEventListener("resize",()=>Object.values(charts).forEach(c=>c.resize()));
 (async()=>{ await loadWL(); load(); loadExtra(); })();
 setInterval(()=>load(), 20000); setInterval(()=>loadExtra(), 120000);

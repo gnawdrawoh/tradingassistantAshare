@@ -27,9 +27,21 @@ def _cmd(script):
     """在本机(RUN_LOCAL,如部署在装了 Longbridge CLI 的主机上)或经 SSH 到远程主机执行。"""
     return ["bash","-lc",script] if RUN_LOCAL else ["ssh","-o","ConnectTimeout=12",SSH_HOST,script]
 
-# ---------------- 登录口令(可选;公网暴露时启用)----------------
+# ---------------- 登录:口令(单用户)+ 访问令牌(多用户)----------------
 AUTH_PW = os.environ.get("PANMIAN_PASSWORD") or CONFIG.get("password") or ""
-_SESS   = hashlib.sha256(("panmian-sess::"+AUTH_PW).encode()).hexdigest() if AUTH_PW else ""
+_OWNER_SESS = hashlib.sha256(("panmian-sess::"+AUTH_PW).encode()).hexdigest() if AUTH_PW else ""
+USERS   = CONFIG.get("users") or {}     # token -> {"name":.., "watchlist":[..]}
+AUTH_ON = bool(AUTH_PW or USERS)
+_ctx    = threading.local()             # 每请求的当前用户
+def resolve_session(val):
+    """cookie/token 值 → 用户id('_owner' 或 token);无效返回 None。"""
+    if not val: return None
+    if _OWNER_SESS and val==_OWNER_SESS: return "_owner"
+    if val in USERS: return val
+    return None
+def user_name(uid):
+    if uid=="_owner": return "本人"
+    return (USERS.get(uid) or {}).get("name") or "访客"
 LOGIN_HTML = ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
   "<title>盘面 Tracker · 登录</title><style>"
   "body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;"
@@ -42,8 +54,8 @@ LOGIN_HTML = ("<!doctype html><meta charset=utf-8><meta name=viewport content='w
   "input:focus{border-color:#e8b84b}button{width:100%;padding:11px;border:0;border-radius:10px;cursor:pointer;"
   "background:linear-gradient(135deg,#1f6feb,#3b82f6);color:#fff;font-size:14px;font-weight:600}"
   ".err{color:#ff4d51;font-size:12px;min-height:16px;margin-top:8px}</style>"
-  "<form class=box method=post action=/login><h1>盘面 Tracker</h1><p>请输入访问口令</p>"
-  "<input type=password name=password autofocus placeholder='口令'>"
+  "<form class=box method=post action=/login><h1>盘面 Tracker</h1><p>请输入口令或访问令牌</p>"
+  "<input type=password name=password autofocus placeholder='口令 / 访问令牌'>"
   "<button type=submit>进入</button><div class=err>__ERR__</div></form>")
 CIRC_SHARES = 100000000          # 流通股 fallback (会被 static 覆盖)
 CACHE_TTL   = 15                 # seconds
@@ -53,14 +65,22 @@ DEFAULT_WL  = CONFIG.get("watchlist") or [
     {"symbol":"700.HK","name":"Tencent"},
     {"symbol":"600519.SH","name":"Kweichow Moutai"}]
 
+def _wl_path(uid):
+    if not uid or uid=="_owner": return WL_FILE
+    safe="".join(c for c in str(uid) if c.isalnum())[:24] or "u"
+    return os.path.join(HERE, f"watchlist_{safe}.json")
 def load_wl():
+    uid=getattr(_ctx,"user",None)
     try:
-        with open(WL_FILE,encoding="utf-8") as f:
+        with open(_wl_path(uid),encoding="utf-8") as f:
             wl=json.load(f)
-            return wl if isinstance(wl,list) and wl else list(DEFAULT_WL)
-    except Exception: return list(DEFAULT_WL)
+            if isinstance(wl,list) and wl: return wl
+    except Exception: pass
+    seed=(USERS.get(uid) or {}).get("watchlist") if uid and uid!="_owner" else None
+    return list(seed) if seed else list(DEFAULT_WL)
 def save_wl(wl):
-    with open(WL_FILE,"w",encoding="utf-8") as f: json.dump(wl,f,ensure_ascii=False,indent=1)
+    with open(_wl_path(getattr(_ctx,"user",None)),"w",encoding="utf-8") as f:
+        json.dump(wl,f,ensure_ascii=False,indent=1)
 def default_symbol():
     return os.environ.get("STOCK_SYMBOL") or load_wl()[0]["symbol"]
 def wl_name(sym):
@@ -653,15 +673,28 @@ class H(BaseHTTPRequestHandler):
         from urllib.parse import urlparse, parse_qs
         q=parse_qs(urlparse(self.path).query)
         return (q.get("symbol",[None])[0] or default_symbol()).strip().upper()
+    def _sess_val(self):
+        for part in (self.headers.get("Cookie","") or "").split(";"):
+            part=part.strip()
+            if part.startswith("panmian_sess="): return part[len("panmian_sess="):]
+        return ""
     def _authed(self):
-        if not AUTH_PW: return True
-        c=self.headers.get("Cookie","") or ""
-        return ("panmian_sess="+_SESS) in c.replace(" ","")
+        if not AUTH_ON: _ctx.user="_owner"; return True
+        _ctx.user = resolve_session(self._sess_val())
+        return _ctx.user is not None
+    def _set_sess(self, sess):
+        self.send_response(302); self.send_header("Location","/")
+        self.send_header("Set-Cookie", f"panmian_sess={sess}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax")
+        self.end_headers()
     def _login_page(self, err=""):
         html=LOGIN_HTML.replace("__ERR__", err)
         self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
     def do_GET(self):
+        from urllib.parse import urlparse, parse_qs
         p=self.path.split("?")[0]
+        qtok=parse_qs(urlparse(self.path).query).get("token",[None])[0]
+        if qtok and resolve_session(qtok):        # 魔法链接 ?token=xxx 自动登录
+            return self._set_sess(qtok)
         if p=="/login":
             return self._login_page()
         if not self._authed():
@@ -669,6 +702,8 @@ class H(BaseHTTPRequestHandler):
         if p in ("/","/index.html"):
             with open(os.path.join(HERE,"index.html"),"rb") as f: b=f.read()
             return self._send(200,b,"text/html; charset=utf-8")
+        if p=="/api/whoami":
+            return self._send(200,json.dumps({"name":user_name(_ctx.user)},ensure_ascii=False).encode("utf-8"),"application/json")
         if p=="/api/watchlist":
             return self._send(200,json.dumps({"list":load_wl()},ensure_ascii=False).encode("utf-8"),"application/json")
         if p=="/api/data":
@@ -706,14 +741,12 @@ class H(BaseHTTPRequestHandler):
         if p=="/login":
             from urllib.parse import parse_qs
             n=int(self.headers.get("Content-Length") or 0)
-            body=parse_qs(self.rfile.read(n).decode())
-            pw=(body.get("password",[""])[0])
-            if AUTH_PW and pw==AUTH_PW:
-                self.send_response(302); self.send_header("Location","/")
-                self.send_header("Set-Cookie", f"panmian_sess={_SESS}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax")
-                self.end_headers(); return
-            return self._login_page("口令错误")
-        if AUTH_PW and not self._authed():
+            val=(parse_qs(self.rfile.read(n).decode()).get("password",[""])[0]).strip()
+            if AUTH_PW and val==AUTH_PW: return self._set_sess(_OWNER_SESS)  # 本人口令
+            if val in USERS: return self._set_sess(val)                     # 访客令牌
+            return self._login_page("口令 / 令牌 错误")
+        ok=self._authed()
+        if AUTH_ON and not ok:
             return self._send(401,json.dumps({"ok":False,"error":"未登录"}).encode(),"application/json")
         if p=="/api/chat":
             try:

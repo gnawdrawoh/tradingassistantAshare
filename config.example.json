@@ -1,6 +1,27 @@
 {
   "ssh_host": "your-host-with-longbridge-cli  (或 'local' 表示直接在本机跑 longbridge)",
-  "password": "(可选) 公网访问口令,留空则不启用登录",
+  "password": "(可选) 本人登录口令,留空+无users则不启用登录",
+  "users": {
+    "生成一个随机令牌当访客的凭证": {
+      "name": "访客1",
+      "watchlist": [
+        {
+          "symbol": "600519.SH",
+          "name": "Kweichow Moutai"
+        }
+      ]
+    },
+    "再生成一个给第二个访客": {
+      "name": "访客2",
+      "watchlist": [
+        {
+          "symbol": "AAPL.US",
+          "name": "Apple"
+        }
+      ]
+    }
+  },
+  "_users_note": "多用户:每个访客一个令牌(token),用 login?token=xxx 魔法链接分享;每人独立自选(watchlist 为其默认)",
   "watchlist": [
     {
       "symbol": "AAPL.US",
