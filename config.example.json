@@ -1,8 +1,18 @@
 {
-  "ssh_host": "your-host-with-longbridge-cli",
+  "ssh_host": "your-host-with-longbridge-cli  (或 'local' 表示直接在本机跑 longbridge)",
+  "password": "(可选) 公网访问口令,留空则不启用登录",
   "watchlist": [
-    {"symbol": "AAPL.US", "name": "Apple"},
-    {"symbol": "700.HK",  "name": "Tencent"},
-    {"symbol": "600519.SH","name": "Kweichow Moutai"}
+    {
+      "symbol": "AAPL.US",
+      "name": "Apple"
+    },
+    {
+      "symbol": "700.HK",
+      "name": "Tencent"
+    },
+    {
+      "symbol": "600519.SH",
+      "name": "Kweichow Moutai"
+    }
   ]
 }

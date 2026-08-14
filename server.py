@@ -10,7 +10,7 @@ Longbridge CLI on a reachable host (over SSH, set LB_SSH_HOST) and computes:
   - a composite 盘面强弱 score with transparent sub-signals
 Run:  python3 server.py [port]
 """
-import json, subprocess, time, threading, sys, os, math
+import json, subprocess, time, threading, sys, os, math, hashlib
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -22,6 +22,29 @@ def _load_json(name, default):
     except Exception: return default
 CONFIG      = _load_json("config.json", {})     # 可选;见 config.example.json
 SSH_HOST    = os.environ.get("LB_SSH_HOST") or CONFIG.get("ssh_host") or "localhost"
+RUN_LOCAL   = SSH_HOST.lower() in ("local","localhost","127.0.0.1","")   # 直接跑 longbridge,不经 SSH
+def _cmd(script):
+    """在本机(RUN_LOCAL,如部署在装了 Longbridge CLI 的主机上)或经 SSH 到远程主机执行。"""
+    return ["bash","-lc",script] if RUN_LOCAL else ["ssh","-o","ConnectTimeout=12",SSH_HOST,script]
+
+# ---------------- 登录口令(可选;公网暴露时启用)----------------
+AUTH_PW = os.environ.get("PANMIAN_PASSWORD") or CONFIG.get("password") or ""
+_SESS   = hashlib.sha256(("panmian-sess::"+AUTH_PW).encode()).hexdigest() if AUTH_PW else ""
+LOGIN_HTML = ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+  "<title>盘面 Tracker · 登录</title><style>"
+  "body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;"
+  "background:radial-gradient(1000px 500px at 50% -10%,#12202e,#0a0e14);font-family:-apple-system,'PingFang SC',sans-serif}"
+  ".box{background:rgba(19,26,35,.7);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.08);"
+  "border-radius:16px;padding:34px 30px;width:300px;text-align:center;color:#e6edf3}"
+  ".box h1{font-size:17px;margin:0 0 4px;letter-spacing:1px}.box p{color:#77879a;font-size:12px;margin:0 0 18px}"
+  "input{width:100%;box-sizing:border-box;padding:11px 13px;border-radius:10px;border:1px solid rgba(255,255,255,.12);"
+  "background:rgba(0,0,0,.25);color:#e6edf3;font-size:14px;margin-bottom:12px;outline:none}"
+  "input:focus{border-color:#e8b84b}button{width:100%;padding:11px;border:0;border-radius:10px;cursor:pointer;"
+  "background:linear-gradient(135deg,#1f6feb,#3b82f6);color:#fff;font-size:14px;font-weight:600}"
+  ".err{color:#ff4d51;font-size:12px;min-height:16px;margin-top:8px}</style>"
+  "<form class=box method=post action=/login><h1>盘面 Tracker</h1><p>请输入访问口令</p>"
+  "<input type=password name=password autofocus placeholder='口令'>"
+  "<button type=submit>进入</button><div class=err>__ERR__</div></form>")
 CIRC_SHARES = 100000000          # 流通股 fallback (会被 static 覆盖)
 CACHE_TTL   = 15                 # seconds
 WL_FILE     = os.path.join(HERE, "watchlist.json")
@@ -75,7 +98,7 @@ def _ssh_batch(SYMBOL):
         ("TS",     f"longbridge intraday {SYMBOL} --format json"),
     ]
     script = "; ".join(f'echo "<<<{k}>>>"; {c}' for k, c in cmds)
-    out = subprocess.run(["ssh", "-o", "ConnectTimeout=12", SSH_HOST, script],
+    out = subprocess.run(_cmd(script),
                          capture_output=True, text=True, timeout=60).stdout
     parts = {}
     cur = None
@@ -387,7 +410,7 @@ def compute_peers(target=None):
     syms=[s for s,_ in PEERS]
     script='echo "<<Q>>"; longbridge quote '+" ".join(syms)+" --format json"
     for s in syms: script+=f'; echo "<<K:{s}>>"; longbridge kline {s} --period day --count 20 --format json'
-    out=subprocess.run(["ssh","-o","ConnectTimeout=12",SSH_HOST,script],
+    out=subprocess.run(_cmd(script),
                        capture_output=True,text=True,timeout=60).stdout
     blocks={}; cur=None; buf=[]
     for ln in out.splitlines():
@@ -475,8 +498,8 @@ def _news_text(sym=None):
     parts=[]
     # 1) Longbridge 新闻标题
     try:
-        out=subprocess.run(["ssh","-o","ConnectTimeout=12",SSH_HOST,
-            f"longbridge news {sym} --count 8 --format json"],capture_output=True,text=True,timeout=40).stdout
+        out=subprocess.run(_cmd(f"longbridge news {sym} --count 8 --format json"),
+            capture_output=True,text=True,timeout=40).stdout
         arr=json.loads(out or "[]")
         ts=[f"{x.get('published_at','')[:10]} {x.get('title','')}" for x in arr[:6] if x.get("title")]
         if ts: parts.append("新闻:"+" | ".join(ts))
@@ -548,8 +571,19 @@ class H(BaseHTTPRequestHandler):
         from urllib.parse import urlparse, parse_qs
         q=parse_qs(urlparse(self.path).query)
         return (q.get("symbol",[None])[0] or default_symbol()).strip().upper()
+    def _authed(self):
+        if not AUTH_PW: return True
+        c=self.headers.get("Cookie","") or ""
+        return ("panmian_sess="+_SESS) in c.replace(" ","")
+    def _login_page(self, err=""):
+        html=LOGIN_HTML.replace("__ERR__", err)
+        self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
     def do_GET(self):
         p=self.path.split("?")[0]
+        if p=="/login":
+            return self._login_page()
+        if not self._authed():
+            self.send_response(302); self.send_header("Location","/login"); self.end_headers(); return
         if p in ("/","/index.html"):
             with open(os.path.join(HERE,"index.html"),"rb") as f: b=f.read()
             return self._send(200,b,"text/html; charset=utf-8")
@@ -587,6 +621,18 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         p=self.path.split("?")[0]
+        if p=="/login":
+            from urllib.parse import parse_qs
+            n=int(self.headers.get("Content-Length") or 0)
+            body=parse_qs(self.rfile.read(n).decode())
+            pw=(body.get("password",[""])[0])
+            if AUTH_PW and pw==AUTH_PW:
+                self.send_response(302); self.send_header("Location","/")
+                self.send_header("Set-Cookie", f"panmian_sess={_SESS}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax")
+                self.end_headers(); return
+            return self._login_page("口令错误")
+        if AUTH_PW and not self._authed():
+            return self._send(401,json.dumps({"ok":False,"error":"未登录"}).encode(),"application/json")
         if p!="/api/watchlist": return self._send(404,b"not found","text/plain")
         try:
             n=int(self.headers.get("Content-Length") or 0)
@@ -600,8 +646,7 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200,json.dumps({"ok":True,"list":wl},ensure_ascii=False).encode("utf-8"),"application/json")
             # 校验并取中文名
             try:
-                out=subprocess.run(["ssh","-o","ConnectTimeout=12",SSH_HOST,
-                    f"longbridge static {sym} --lang zh-CN --format json"],
+                out=subprocess.run(_cmd(f"longbridge static {sym} --lang zh-CN --format json"),
                     capture_output=True,text=True,timeout=40).stdout
                 arr=json.loads(out or "[]"); nm=(arr[0].get("name") if arr else None)
             except Exception as ex: nm=None
