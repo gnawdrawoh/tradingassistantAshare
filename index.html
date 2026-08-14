@@ -835,23 +835,32 @@ function speak(text){
   u.onend=()=>{ if(cvOn()) setTimeout(startListen,300); };  // 说完继续听
   window.speechSynthesis.speak(u);
 }
+const ERRMAP={"not-allowed":"麦克风被拒绝:请在浏览器/系统设置里允许本站使用麦克风","service-not-allowed":"系统语音服务未开启","no-speech":"没听到声音,再说一次","audio-capture":"未检测到麦克风","network":"语音识别网络错误,请重试","aborted":""};
+function micHint(){
+  $("#chatIn").focus();
+  pushMsg("a","🎤 本浏览器不支持网页语音识别(<b>iPhone 的 Safari/Chrome 都受此限制</b>)。<br>👉 点上方输入框,用<b>手机键盘上的 🎤 听写</b>说话再发送即可。<br>(答案朗读/对话模式的“念答案”在 iPhone 上仍可用。)","a");
+}
 function startListen(){
-  if(!SR||listening||chatBusy) return;
-  try{ recog=new SR(); }catch(e){ return; }
+  if(listening||chatBusy) return;
+  if(!SR){ micHint(); return; }
+  try{ recog=new SR(); }catch(e){ micHint(); return; }
   recog.lang="zh-CN"; recog.interimResults=true; recog.continuous=false; recog.maxAlternatives=1;
   listening=true; $("#chatMic").classList.add("on"); $("#chatMic").textContent="🔴";
   recog.onresult=e=>{ let t=""; for(const r of e.results) t+=r[0].transcript; $("#chatIn").value=t; };
-  recog.onerror=()=>{};
+  recog.onerror=ev=>{ const m=ERRMAP[ev.error]; if(m===undefined) pushMsg("a","⚠️ 语音出错:"+ev.error,"a"); else if(m) pushMsg("a","⚠️ "+m,"a"); };
   recog.onend=()=>{ listening=false; $("#chatMic").classList.remove("on"); $("#chatMic").textContent="🎤";
     const q=$("#chatIn").value.trim(); if(cvOn() && q) sendChat(q); };
-  try{ recog.start(); }catch(e){ listening=false; }
+  try{ recog.start(); }catch(e){ listening=false; $("#chatMic").classList.remove("on"); $("#chatMic").textContent="🎤"; pushMsg("a","⚠️ 无法启动语音:"+(e.message||e),"a"); }
 }
 function stopListen(){ if(recog){ try{recog.stop();}catch(e){} } listening=false; }
-if(SR){
-  $("#chatMic").style.display=""; $("#cvWrap").style.display="";
-  $("#chatMic").onclick=()=> listening?stopListen():startListen();
-  $("#cvMode").onchange=e=>{ if(e.target.checked){ pushMsg("a","🎙️ 对话模式开启:点麦克风说话,答完会念给你听并继续听。","a"); startListen(); } else { stopListen(); window.speechSynthesis&&window.speechSynthesis.cancel(); } };
-}
+$("#chatMic").style.display=""; $("#cvWrap").style.display="";     // 始终显示(不支持时给提示)
+$("#chatMic").onclick=()=> listening?stopListen():startListen();
+$("#cvMode").onchange=e=>{
+  if(e.target.checked){
+    if(SR){ pushMsg("a","🎙️ 对话模式:点 🎤 说话,答完会念给你听并继续听。","a"); startListen(); }
+    else{ pushMsg("a","🎙️ 对话模式:此设备不支持网页语音输入,但答案会<b>朗读</b>出来;语音提问请用手机键盘的 🎤 听写。","a"); }
+  } else { stopListen(); window.speechSynthesis&&window.speechSynthesis.cancel(); }
+};
 window.addEventListener("resize",()=>Object.values(charts).forEach(c=>c.resize()));
 (async()=>{ await loadWL(); load(); loadExtra(); })();
 setInterval(()=>load(), 20000); setInterval(()=>loadExtra(), 120000);
